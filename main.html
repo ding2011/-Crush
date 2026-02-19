@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>基于贝叶斯的包继涵Crush对他好感度判断工具 </title>
+    <style>
+        /* 重置与全局变量 —— 空间化液态玻璃基调 */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --depth-bg: #0b0d10;
+            --glass-base: rgba(220, 230, 245, 0.18);
+            --glass-edge: rgba(255, 255, 255, 0.4);
+            --glass-glow: rgba(180, 210, 255, 0.6);
+            --text-primary: rgba(255, 255, 255, 0.92);
+            --text-secondary: rgba(255, 255, 255, 0.6);
+            --accent-liquify: #88aac0;
+            --accent-deep: #4b6b85;
+            --shadow-intense: 0 30px 50px -20px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.12) inset;
+            --blur-amount: 32px;
+            --radius-3d: 32px;
+            --transition-space: 0.45s cubic-bezier(0.2, 0.9, 0.3, 1);
+        }
+
+        body {
+            min-height: 100vh;
+            background: radial-gradient(ellipse at 30% 40%, #1c2933, #07090e 80%);
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', system-ui, sans-serif;
+            color: var(--text-primary);
+            line-height: 1.44;
+            padding: 2rem 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(2px);
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        /* 3D 浮动粒子 —— 空间深度 */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: 
+                radial-gradient(circle at 20% 30%, rgba(140, 190, 230, 0.15) 0%, transparent 30%),
+                radial-gradient(circle at 80% 70%, rgba(190, 220, 250, 0.1) 0%, transparent 35%),
+                repeating-linear-gradient(45deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 2px, transparent 2px, transparent 10px);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* 主容器 —— 3D 空间层 */
+        .container {
+            max-width: 740px;
+            width: 100%;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+            position: relative;
+            z-index: 3;
+            transform-style: preserve-3d;
+            perspective: 1200px;
+        }
+
+        /* 通用卡片 —— 液态玻璃 + 3D 悬浮 */
+        .card, .header, .footer {
+            transform: translateZ(20px) rotateX(0.8deg) rotateY(0.2deg);
+            transition: transform 0.4s ease, box-shadow 0.5s ease, backdrop-filter 0.4s;
+            animation: floatInto 0.9s cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
+            opacity: 0;
+            transform-origin: center bottom;
+        }
+
+        @keyframes floatInto {
+            0% { opacity: 0; transform: translateZ(-40px) rotateX(4deg) translateY(30px); filter: blur(6px); }
+            100% { opacity: 1; transform: translateZ(20px) rotateX(0.8deg) rotateY(0.2deg) translateY(0); filter: blur(0); }
+        }
+
+        /* 玻璃质感核心 */
+        .glass-panel {
+            background: var(--glass-base);
+            backdrop-filter: blur(var(--blur-amount)) saturate(200%);
+            -webkit-backdrop-filter: blur(var(--blur-amount)) saturate(200%);
+            border-radius: var(--radius-3d);
+            border: 1px solid var(--glass-edge);
+            box-shadow: var(--shadow-intense), 0 15px 35px -5px rgba(0, 0, 0, 0.5);
+            transition: var(--transition-space);
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* 液态光泽浮动层 */
+        .glass-panel::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            background: radial-gradient(circle at 30% 20%, rgba(255,255,255,0.25) 0%, transparent 60%);
+            pointer-events: none;
+            opacity: 0.5;
+            transition: opacity 0.6s;
+        }
+
+        .glass-panel:hover {
+            transform: translateZ(35px) scale(1.01) rotateX(0.2deg);
+            box-shadow: 0 40px 70px -15px black, 0 0 0 1.5px rgba(255,255,255,0.25) inset, 0 0 40px rgba(120, 180, 255, 0.3);
+            backdrop-filter: blur(40px) saturate(230%);
+        }
+
+        .glass-panel:hover::after {
+            opacity: 0.8;
+        }
+
+        /* 头部 */
+        .header {
+            text-align: center;
+            padding: 32px 24px 24px;
+            animation-delay: 0.05s;
+        }
+        .header h1 {
+            font-size: clamp(34px, 7vw, 48px);
+            font-weight: 300;
+            letter-spacing: -0.5px;
+            background: linear-gradient(145deg, #ffffff 10%, #c0d4ec 80%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            text-shadow: 0 2px 10px rgba(160, 200, 255, 0.3);
+            margin-bottom: 8px;
+        }
+        .header p {
+            font-size: clamp(15px, 3vw, 17px);
+            color: var(--text-secondary);
+            font-weight: 340;
+            backdrop-filter: blur(5px);
+        }
+
+        /* 卡片通用调整 */
+        .card {
+            background: transparent; 
+            padding: 0; 
+            border: none; 
+            box-shadow: none; 
+            backdrop-filter: none; 
+        }
+        .card .glass-panel {
+            padding: clamp(24px, 5vw, 34px);
+        }
+        .card-title {
+            font-size: clamp(20px, 4vw, 24px);
+            font-weight: 350;
+            letter-spacing: -0.2px;
+            margin-bottom: 28px;
+            color: rgba(255,255,255,0.95);
+            text-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            border-left: 4px solid var(--accent-liquify);
+            padding-left: 18px;
+        }
+
+        /* 证据列表 空间感 */
+        .evidence-list {
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+        .evidence-item {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            cursor: pointer;
+            transition: 0.3s;
+            padding: 6px 10px;
+            border-radius: 50px;
+            background: rgba(255,255,255,0.02);
+            border: 1px solid transparent;
+        }
+        .evidence-item:hover {
+            background: rgba(255,255,255,0.07);
+            border-color: rgba(255,255,255,0.15);
+            transform: translateX(6px) translateZ(8px);
+            backdrop-filter: blur(8px);
+        }
+
+        /* 3D 复选框 —— 液态气泡 */
+        .evidence-item input[type="checkbox"] {
+            appearance: none;
+            -webkit-appearance: none;
+            width: 26px;
+            height: 26px;
+            border-radius: 10px;
+            background: rgba(255,255,255,0.12);
+            border: 1px solid rgba(255,255,255,0.3);
+            backdrop-filter: blur(8px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3), inset 0 0 0 1px rgba(255,255,255,0.2);
+            position: relative;
+            flex-shrink: 0;
+            transition: 0.2s;
+            cursor: pointer;
+        }
+        .evidence-item input[type="checkbox"]:checked {
+            background: var(--accent-liquify);
+            border-color: white;
+            box-shadow: 0 0 15px var(--glass-glow), inset 0 0 8px white;
+        }
+        .evidence-item input[type="checkbox"]:checked::after {
+            content: '';
+            position: absolute;
+            top: 4px;
+            left: 8px;
+            width: 8px;
+            height: 14px;
+            border: solid white;
+            border-width: 0 2.5px 2.5px 0;
+            transform: rotate(45deg);
+            filter: drop-shadow(0 0 3px white);
+        }
+        .evidence-item label {
+            font-size: clamp(15px, 3vw, 17px);
+            color: rgba(255,255,255,0.9);
+            font-weight: 360;
+            cursor: pointer;
+            text-shadow: 0 1px 4px rgba(0,0,0,0.4);
+            letter-spacing: 0.2px;
+        }
+
+        /* 参数滑块区 —— 液态玻璃轨道 */
+        .parameter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 36px;
+        }
+        .parameter-item {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .parameter-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .parameter-label {
+            font-size: 16px;
+            font-weight: 380;
+            color: rgba(255,255,255,0.8);
+            text-shadow: 0 1px 3px black;
+        }
+        .parameter-value {
+            font-size: 20px;
+            font-weight: 350;
+            color: white;
+            background: rgba(0,0,0,0.25);
+            padding: 4px 12px;
+            border-radius: 40px;
+            border: 0.5px solid rgba(255,255,255,0.2);
+            backdrop-filter: blur(10px);
+            font-variant-numeric: tabular-nums;
+        }
+        .parameter-desc {
+            font-size: 13px;
+            color: rgba(255,255,255,0.5);
+            letter-spacing: 0.2px;
+        }
+
+        /* 滑块 —— 3D 发光条 */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 10px;
+            border-radius: 20px;
+            background: rgba(10, 20, 30, 0.7);
+            box-shadow: inset 0 2px 8px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.1);
+            outline: none;
+            background: linear-gradient(to right, var(--accent-liquify) 0%, var(--accent-liquify) var(--value), rgba(50,60,80,0.6) var(--value), rgba(50,60,80,0.6) 100%);
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 30% 30%, #ffffff, #b0c8e0);
+            box-shadow: 0 6px 16px rgba(0,0,0,0.6), 0 0 0 2px rgba(255,255,255,0.5), 0 0 20px #b0e0ff;
+            cursor: pointer;
+            transition: 0.15s;
+            border: 1px solid white;
+        }
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.15);
+            box-shadow: 0 8px 22px black, 0 0 0 3px white;
+        }
+        input[type="range"]::-moz-range-thumb {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 30% 30%, #ffffff, #b0c8e0);
+            box-shadow: 0 6px 16px black, 0 0 0 2px rgba(255,255,255,0.5);
+            cursor: pointer;
+            border: none;
+        }
+
+        /* 计算按钮 —— 立体玻璃 */
+        .calculate-btn {
+            width: 100%;
+            padding: 22px 0;
+            background: rgba(120, 160, 200, 0.3);
+            backdrop-filter: blur(30px) saturate(250%);
+            border: 1px solid rgba(255,255,255,0.35);
+            border-radius: 60px;
+            color: white;
+            font-size: 22px;
+            font-weight: 380;
+            letter-spacing: 1px;
+            cursor: pointer;
+            transition: var(--transition-space);
+            box-shadow: 0 25px 35px -10px black, 0 0 0 1px rgba(255,255,255,0.2) inset, 0 0 30px rgba(160,200,255,0.3);
+            text-shadow: 0 2px 10px black;
+            transform: translateZ(28px);
+            margin: 12px 0;
+        }
+        .calculate-btn:hover {
+            background: rgba(140, 190, 240, 0.45);
+            border-color: rgba(255,255,255,0.8);
+            transform: translateZ(42px) scale(1.02);
+            box-shadow: 0 35px 50px -10px black, 0 0 0 2px white inset, 0 0 60px #aac8ff;
+        }
+        .calculate-btn:active {
+            transform: translateZ(18px) scale(0.98);
+            transition: 0.05s;
+        }
+
+        /* 结果卡片 —— 液态核心 */
+        .result-card {
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(25px) translateZ(10px);
+            transition: opacity 0.6s ease, transform 0.7s cubic-bezier(0.2, 0.9, 0.3, 1), visibility 0s 0.5s;
+        }
+        .result-card.show {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0) translateZ(25px);
+            transition: opacity 0.6s ease, transform 0.7s cubic-bezier(0.2, 0.9, 0.3, 1), visibility 0s 0s;
+        }
+        .result-number {
+            font-size: clamp(80px, 16vw, 130px);
+            font-weight: 200;
+            letter-spacing: -3px;
+            color: white;
+            text-shadow: 0 5px 30px rgba(180, 230, 255, 0.7);
+            line-height: 1;
+            margin: 20px 0 12px;
+        }
+        .result-number span {
+            font-size: 50px;
+            font-weight: 200;
+            opacity: 0.75;
+        }
+        .result-text {
+            font-size: 30px;
+            font-weight: 330;
+            background: linear-gradient(120deg, #fff, #ccddee);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            margin-bottom: 16px;
+        }
+        .result-desc {
+            color: rgba(255,255,255,0.5);
+            font-size: 15px;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 20px 0;
+            font-size: 14px;
+            color: rgba(255,255,255,0.3);
+            backdrop-filter: blur(10px);
+            border-radius: 60px;
+            animation-delay: 0.5s;
+        }
+
+        /* 移动端优化 */
+        @media (max-width: 520px) {
+            .container { gap: 20px; }
+            .glass-panel { padding: 20px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header glass-panel">
+            <h1>包继涵 · Crush对他好感度判断工具</h1>
+            <p>贝叶斯算法计算 · 多维推演（好友丁鹏浩开发，不用谢）</p>
+        </header>
+
+        <!-- 行为证据卡 10项 -->
+        <div class="card">
+            <div class="glass-panel">
+                <h2 class="card-title">⌕ 行为证据 · 空间采样</h2>
+                <div class="evidence-list">
+                    <div class="evidence-item"><input type="checkbox" id="e1" class="evidence-checkbox"><label for="e1">主动开启聊天，分享日常</label></div>
+                    <div class="evidence-item"><input type="checkbox" id="e2" class="evidence-checkbox"><label for="e2">回复速度明显快于他人</label></div>
+                    <div class="evidence-item"><input type="checkbox" id="e3" class="evidence-checkbox"><label for="e3">记得你随口提过的喜好</label></div>
+                    <div class="evidence-item"><input type="checkbox" id="e4" class="evidence-checkbox"><label for="e4">对你的态度明显区别他人</label></div>
+                    <div class="evidence-item"><input type="checkbox" id="e5" class="evidence-checkbox"><label for="e5">在意你与其他异性互动</label></div>
+                    <div class="evidence-item"><input type="checkbox" id="e6" class="evidence-checkbox"><label for="e6">主动创造见面机会</label></div>
+                    <div class="evidence-item"><input type="checkbox" id="e7" class="evidence-checkbox"><label for="e7">愿意靠近，不抗拒接触</label></div>
+                    <div class="evidence-item"><input type="checkbox" id="e8" class="evidence-checkbox"><label for="e8">分享心事或脆弱面</label></div>
+                    <div class="evidence-item"><input type="checkbox" id="e9" class="evidence-checkbox"><label for="e9">为你花时间精力解决问题</label></div>
+                    <div class="evidence-item"><input type="checkbox" id="e10" class="evidence-checkbox"><label for="e10">明确表达过欣赏好感</label></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 参数调整卡 三个滑块 -->
+        <div class="card">
+            <div class="glass-panel">
+                <h2 class="card-title">⚡ 液态参数 · 先验权重</h2>
+                <div class="parameter-group">
+                    <div class="parameter-item">
+                        <div class="parameter-header"><label class="parameter-label">初始好感预判</label><span class="parameter-value" id="pA-value">30%</span></div>
+                        <p class="parameter-desc">直觉中TA原本有好感的可能性</p>
+                        <input type="range" id="pA-slider" min="0" max="100" value="30" step="1">
+                    </div>
+                    <div class="parameter-item">
+                        <div class="parameter-header"><label class="parameter-label">喜欢时行为强度系数</label><span class="parameter-value" id="pEA-value">60%</span></div>
+                        <p class="parameter-desc">若喜欢你，每项行为发生的基准强度</p>
+                        <input type="range" id="pEA-slider" min="0" max="100" value="60" step="1">
+                    </div>
+                    <div class="parameter-item">
+                        <div class="parameter-header"><label class="parameter-label">不喜欢时行为强度系数</label><span class="parameter-value" id="pENA-value">20%</span></div>
+                        <p class="parameter-desc">若不喜欢，行为仍发生的基准可能 (礼貌/性格)</p>
+                        <input type="range" id="pENA-slider" min="0" max="100" value="20" step="1">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 测算按钮 -->
+        <button class="calculate-btn" id="calculate-btn">▶ 精准测算 </button>
+
+        <!-- 结果卡 -->
+        <div class="card result-card" id="result-card">
+            <div class="glass-panel" style="text-align: center;">
+                <p class="result-text" id="result-text">心动后验概率</p>
+                <div class="result-number" id="result-number">0<span>%</span></div>
+                <p class="result-desc">基于多维贝叶斯 · 空间化似然加权</p>
+            </div>
+        </div>
+
+        <footer class="footer glass-panel" style="border-radius: 60px; padding: 16px 20px;">
+            ⚡ 包继涵 ·贝叶斯判断工具 ⚡
+        </footer>
+    </div>
+
+    <script>
+        (function() {
+            // DOM 元素
+            const checkboxes = document.querySelectorAll('.evidence-checkbox');
+            const pASlider = document.getElementById('pA-slider');
+            const pAValue = document.getElementById('pA-value');
+            const pEASlider = document.getElementById('pEA-slider');
+            const pEAValue = document.getElementById('pEA-value');
+            const pENASlider = document.getElementById('pENA-slider');
+            const pENAValue = document.getElementById('pENA-value');
+            const calculateBtn = document.getElementById('calculate-btn');
+            const resultCard = document.getElementById('result-card');
+            const resultNumber = document.getElementById('result-number');
+            const resultText = document.getElementById('result-text');
+            const allSliders = [pASlider, pEASlider, pENASlider];
+
+            // 初始化滑块背景进度 (--value)
+            function updateSliderStyle(slider) {
+                const val = slider.value;
+                slider.style.setProperty('--value', `${val}%`);
+            }
+            allSliders.forEach(s => { updateSliderStyle(s); });
+
+            // 滑块数值显示 + 进度
+            pASlider.addEventListener('input', function() {
+                pAValue.textContent = this.value + '%';
+                updateSliderStyle(this);
+            });
+            pEASlider.addEventListener('input', function() {
+                pEAValue.textContent = this.value + '%';
+                updateSliderStyle(this);
+            });
+            pENASlider.addEventListener('input', function() {
+                pENAValue.textContent = this.value + '%';
+                updateSliderStyle(this);
+            });
+
+            // 不再自动绑定勾选与滑块 —— 改为独立贝叶斯因子
+            // 每个证据的基础似然 (喜欢时 / 不喜欢时)  经过空间化校准
+            const likeBase = [0.82, 0.88, 0.86, 0.94, 0.85, 0.91, 0.89, 0.84, 0.9, 0.97];   // P(E|喜欢)
+            const dislikeBase = [0.25, 0.16, 0.2, 0.12, 0.1, 0.07, 0.13, 0.22, 0.12, 0.03]; // P(E|不喜欢)
+
+            // 贝叶斯核心 (证据独立联合)
+            function calculatePosterior() {
+                // 先验 P(A)
+                const pA = parseInt(pASlider.value, 10) / 100;
+                const pNotA = 1 - pA;
+                
+                // 强度系数 (喜欢/不喜欢因子)
+                const likeFactor = parseInt(pEASlider.value, 10) / 100;       // 默认0.6
+                const dislikeFactor = parseInt(pENASlider.value, 10) / 100;   // 默认0.2
+
+                // 收集勾选索引
+                const checkedIndices = [];
+                checkboxes.forEach((cb, idx) => { if (cb.checked) checkedIndices.push(idx); });
+
+                // 如果没有勾选任何证据，后验 = 先验 (无更新)
+                if (checkedIndices.length === 0) {
+                    return pA * 100;
+                }
+
+                // 计算联合似然 P(E|A) 和 P(E|~A) (假设条件独立)
+                let likeProduct = 1.0;
+                let dislikeProduct = 1.0;
+
+                for (let i of checkedIndices) {
+                    // 基础概率乘系数，并限制在0.01～0.99防止极端
+                    let pLike = likeBase[i] * likeFactor;
+                    let pDislike = dislikeBase[i] * dislikeFactor;
+                    pLike = Math.min(0.99, Math.max(0.01, pLike));
+                    pDislike = Math.min(0.99, Math.max(0.01, pDislike));
+
+                    likeProduct *= pLike;
+                    dislikeProduct *= pDislike;
+                }
+
+                // 贝叶斯公式
+                const numerator = likeProduct * pA;
+                const denominator = numerator + dislikeProduct * pNotA;
+
+                if (denominator === 0) return 0;
+                return (numerator / denominator) * 100;
+            }
+
+            // 结果文本映射 (空间情感刻度)
+            function getResultText(prob) {
+                if (prob >= 92) return "♾️ 双向奔赴 · 引力锁定";
+                if (prob >= 78) return "✨ 极大概率真心 · 空间重叠";
+                if (prob >= 58) return " 明确好感倾向 · 液态热流";
+                if (prob >= 35) return " 微弱好感 · 可继续采样";
+                return "🪐 目前更接近普通朋友轨道";
+            }
+
+            // 数字滚动动画 (优化标签)
+            function animateNumber(finalValue) {
+                const duration = 1500;
+                const startTime = performance.now();
+                const startValue = 0;
+
+                function step(now) {
+                    const elapsed = now - startTime;
+                    const progress = Math.min(elapsed / duration, 1);
+                    const easeProgress = 1 - Math.pow(1 - progress, 3.5); // 更柔和的缓动
+                    const current = startValue + (finalValue - startValue) * easeProgress;
+                    resultNumber.innerHTML = `${current.toFixed(1)}<span>%</span>`;
+                    if (progress < 1) requestAnimationFrame(step);
+                }
+                requestAnimationFrame(step);
+            }
+
+            // 点击测算
+            calculateBtn.addEventListener('click', () => {
+                const posterior = calculatePosterior();
+                resultCard.classList.add('show');
+                animateNumber(posterior);
+                resultText.textContent = getResultText(posterior);
+                // 轻微滚动到结果卡
+                resultCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            });
+
+            // 初始化滑块描述 (重置无自动关联)
+            // 但保留所有显示
+        })();
+    </script>
+
+    <!-- 补丁：给所有滑块初始化背景显示 (确保滑块背景更新) -->
+    <script>
+        (function secondaryPatch() {
+            // 确保所有滑块都有--value初始值，并且每次拖动都更新
+            const sliders = document.querySelectorAll('input[type="range"]');
+            sliders.forEach(s => {
+                s.dispatchEvent(new Event('input'));
+            });
+        })();
+    </script>
+</body>
+</html>
